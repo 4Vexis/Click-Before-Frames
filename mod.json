@@ -1,17 +1,67 @@
 {
-	"geode": "5.11.2",
-	"gd": {
-		"win": "2.2081",
-		"android": "2.2081",
-		"mac": "2.2081",
-		"ios": "2.2081"
-	},
-	"id": "4vexis.click-before-frames",
-	"name": "Click Before Frames",
-	"version": "v1.0.0",
-	"developer": "4Vexis",
-	"description": "Buffer clicks without consequences.",
-	"dependencies": {
-		"geode.node-ids": ">=v1.23.3"
-	}
+    "geode": "5.11.2",
+    "gd": {
+        "win": "2.2081",
+        "android": "2.2081",
+        "mac": "2.2081",
+        "ios": "2.2081"
+    },
+    "id": "4vexis.click-before-frames",
+    "name": "Click Before Frames",
+    "version": "v1.1.0",
+    "developer": "4Vexis",
+    "description": "Buffer early clicks so they register when you land or touch an orb. Includes an on-screen mode button.",
+    "settings": {
+        "show-button": {
+            "type": "bool",
+            "name": "Show button",
+            "default": true
+        },
+        "btn-x": {
+            "type": "float",
+            "name": "Button distance from right edge",
+            "default": 40,
+            "min": 0,
+            "max": 400
+        },
+        "btn-y": {
+            "type": "float",
+            "name": "Button distance from top edge",
+            "default": 30,
+            "min": 0,
+            "max": 300
+        },
+        "btn-scale": {
+            "type": "float",
+            "name": "Button size",
+            "default": 0.5,
+            "min": 0.2,
+            "max": 1.5
+        },
+        "low-ticks": {
+            "type": "int",
+            "name": "LOW window (ticks)",
+            "description": "240 ticks = 1 second.",
+            "default": 4,
+            "min": 1,
+            "max": 32
+        },
+        "med-ticks": {
+            "type": "int",
+            "name": "MED window (ticks)",
+            "default": 8,
+            "min": 1,
+            "max": 32
+        },
+        "high-ticks": {
+            "type": "int",
+            "name": "HIGH window (ticks)",
+            "default": 16,
+            "min": 1,
+            "max": 32
+        }
+    },
+    "dependencies": {
+        "geode.node-ids": ">=v1.23.3"
+    }
 }
