@@ -2,9 +2,11 @@
 #include <Geode/modify/GJBaseGameLayer.hpp>
 #include <Geode/modify/PlayLayer.hpp>
 #include <Geode/modify/PauseLayer.hpp>
+#include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/EffectGameObject.hpp>
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <deque>
 using namespace geode::prelude;
 
@@ -13,8 +15,20 @@ using namespace geode::prelude;
 namespace {
     struct Ev { int wait; bool down; bool p1; };
 
+    struct Stats {
+        int clicks = 0;
+        int air = 0;
+        int safe = 0;
+        int died = 0;
+        int delayed = 0;
+        int stretched = 0;
+        int lastDelay = 0;
+    };
+
     std::deque<Ev> g_queue;
+    Stats g_st;
     int g_shift = 0;
+    int g_relWait = 0;
     bool g_injecting = false;
     bool g_simulating = false;
     bool g_ghostDied = false;
@@ -25,18 +39,18 @@ namespace {
     PlayerObject* g_ghost = nullptr;
     CCLayer* g_ghostLayer = nullptr;
 
+    int currentMode() {
+        return Mod::get()->getSavedValue<int>("mode", 2);
+    }
+
     int currentMaxDelay() {
         auto mod = Mod::get();
-        switch (mod->getSavedValue<int>("mode", 2)) {
+        switch (currentMode()) {
             case 1: return static_cast<int>(mod->getSettingValue<int64_t>("low-ticks"));
             case 2: return static_cast<int>(mod->getSettingValue<int64_t>("med-ticks"));
             case 3: return static_cast<int>(mod->getSettingValue<int64_t>("high-ticks"));
             default: return 0;
         }
-    }
-
-    bool flying(PlayerObject* p) {
-        return p->m_isShip || p->m_isBird || p->m_isDart || p->m_isSwing;
     }
 
     bool canActNow(PlayerObject* p) {
@@ -48,6 +62,7 @@ namespace {
     void clearPending() {
         g_queue.clear();
         g_shift = 0;
+        g_relWait = 0;
         g_pressTick = -1;
     }
 
@@ -65,11 +80,12 @@ namespace {
 
     PlayerObject* ensureGhost(PlayLayer* pl) {
         if (g_ghost) return g_ghost;
+        bool asP1 = Mod::get()->getSettingValue<bool>("ghost-as-p1");
         g_ghostLayer = CCLayer::create();
         g_ghostLayer->retain();
-        g_ghost = PlayerObject::create(1, 1, pl, g_ghostLayer, false);
+        g_ghost = PlayerObject::create(1, 1, pl, g_ghostLayer, asP1);
         g_ghost->retain();
-        g_ghost->m_isSecondPlayer = true;
+        g_ghost->m_isSecondPlayer = !asP1;
         g_ghost->setVisible(false);
         g_ghostLayer->addChild(g_ghost);
         return g_ghost;
@@ -132,10 +148,18 @@ namespace {
             return std::chrono::duration<double, std::milli>(
                 std::chrono::steady_clock::now() - start).count() > budgetMs;
         };
-        if (ghostSurvives(pl, real, 0, horizon)) return 0;
+        if (ghostSurvives(pl, real, 0, horizon)) {
+            ++g_st.safe;
+            return 0;
+        }
+        ++g_st.died;
         for (int d = 1; d <= maxDelay; ++d) {
             if (overBudget()) return 0;
-            if (ghostSurvives(pl, real, d, horizon)) return d;
+            if (ghostSurvives(pl, real, d, horizon)) {
+                ++g_st.delayed;
+                g_st.lastDelay = d;
+                return d;
+            }
         }
         return 0;
     }
@@ -145,8 +169,8 @@ namespace {
 
 void openModesMenu();
 
-// Floating draggable "V" button. Its hitbox is computed from its live
-// position on every touch, so it always follows the button.
+// Floating draggable "V" button, kept alive across every screen.
+// Its hitbox is computed from its live position on every touch.
 class VButton : public CCLayer {
 protected:
     CCPoint m_startTouch;
@@ -164,6 +188,7 @@ protected:
         icon->setPosition({size.width / 2, size.height / 2});
         this->addChild(icon);
         this->setTouchEnabled(true);
+        this->scheduleUpdate();
         return true;
     }
 
@@ -174,6 +199,15 @@ protected:
         float dx = local.x - size.width / 2;
         float dy = local.y - size.height / 2;
         return dx * dx + dy * dy <= r * r;
+    }
+
+    void clampToScreen(float& x, float& y) {
+        auto win = CCDirector::sharedDirector()->getWinSize();
+        auto size = this->getContentSize();
+        float hw = size.width * this->getScale() / 2;
+        float hh = size.height * this->getScale() / 2;
+        x = std::clamp(x, hw, win.width - hw);
+        y = std::clamp(y, hh, win.height - hh);
     }
 
 public:
@@ -189,13 +223,25 @@ public:
 
     void restorePosition() {
         auto win = CCDirector::sharedDirector()->getWinSize();
-        auto size = this->getContentSize();
         auto mod = Mod::get();
+        this->setScale(static_cast<float>(mod->getSettingValue<double>("v-size")));
         float x = mod->getSavedValue<float>("v-x", win.width - 34.f);
         float y = mod->getSavedValue<float>("v-y", win.height - 60.f);
-        x = std::clamp(x, size.width / 2, win.width - size.width / 2);
-        y = std::clamp(y, size.height / 2, win.height - size.height / 2);
+        clampToScreen(x, y);
         this->setPosition({x, y});
+    }
+
+    void update(float) override {
+        auto mod = Mod::get();
+        float s = static_cast<float>(mod->getSettingValue<double>("v-size"));
+        if (std::abs(this->getScale() - s) > 0.001f) {
+            this->setScale(s);
+            float x = this->getPositionX();
+            float y = this->getPositionY();
+            clampToScreen(x, y);
+            this->setPosition({x, y});
+        }
+        this->setVisible(mod->getSettingValue<bool>("show-v"));
     }
 
     void registerWithTouchDispatcher() override {
@@ -219,10 +265,9 @@ public:
         float dy = cur.y - m_startTouch.y;
         if (!m_dragging && dx * dx + dy * dy < 100.f) return;
         m_dragging = true;
-        auto win = CCDirector::sharedDirector()->getWinSize();
-        auto size = this->getContentSize();
-        float x = std::clamp(m_startPos.x + dx, size.width / 2, win.width - size.width / 2);
-        float y = std::clamp(m_startPos.y + dy, size.height / 2, win.height - size.height / 2);
+        float x = m_startPos.x + dx;
+        float y = m_startPos.y + dy;
+        clampToScreen(x, y);
         this->setPosition({x, y});
     }
 
@@ -242,27 +287,61 @@ public:
     }
 };
 
-// Menu with one checkbox per mode.
+// The V menu: modes, active gamemodes, live stats, settings.
 class ModesMenu : public CCLayer {
 protected:
-    CCSprite* m_checks[4] = {nullptr, nullptr, nullptr, nullptr};
+    CCSprite* m_modeOn[4] = {nullptr, nullptr, nullptr, nullptr};
+    CCSprite* m_enOn[3] = {nullptr, nullptr, nullptr};
+    CCLabelBMFont* m_stat1 = nullptr;
+    CCLabelBMFont* m_stat2 = nullptr;
+    float m_timer = 1.f;
+
+    CCNode* makeCheck(CCSprite*& on) {
+        const float s = 0.7f;
+        auto off = CCSprite::createWithSpriteFrameName("GJ_checkOff_001.png");
+        on = CCSprite::createWithSpriteFrameName("GJ_checkOn_001.png");
+        auto size = off->getContentSize();
+        float w = size.width * s;
+        float h = size.height * s;
+        auto node = CCNode::create();
+        node->setContentSize({w, h});
+        off->setScale(s);
+        on->setScale(s);
+        off->setPosition({w / 2, h / 2});
+        on->setPosition({w / 2, h / 2});
+        node->addChild(off);
+        node->addChild(on);
+        return node;
+    }
+
+    CCLabelBMFont* addLabel(const char* text, float x, float y, float scale, ccColor3B color) {
+        auto lbl = CCLabelBMFont::create(text, "bigFont.fnt");
+        lbl->setScale(scale);
+        lbl->setAnchorPoint({0.f, 0.5f});
+        lbl->setPosition({x, y});
+        lbl->setColor(color);
+        this->addChild(lbl);
+        return lbl;
+    }
 
     bool init() override {
         if (!CCLayer::init()) return false;
         auto win = CCDirector::sharedDirector()->getWinSize();
         float cx = win.width / 2;
         float cy = win.height / 2;
+        ccColor3B gray = {140, 165, 190};
+        ccColor3B white = {255, 255, 255};
 
         this->addChild(CCLayerColor::create({0, 0, 0, 140}));
 
         auto panel = CCScale9Sprite::create("GJ_square01.png");
-        panel->setContentSize({230.f, 210.f});
+        panel->setContentSize({300.f, 270.f});
         panel->setPosition({cx, cy});
         this->addChild(panel);
 
         auto title = CCLabelBMFont::create("Click Before Frames", "goldFont.fnt");
         title->setScale(0.6f);
-        title->setPosition({cx, cy + 85.f});
+        title->setPosition({cx, cy + 118.f});
         this->addChild(title);
 
         auto menu = CCMenu::create();
@@ -270,6 +349,9 @@ protected:
         this->addChild(menu);
 
         auto mod = Mod::get();
+
+        // --- MODE (radio)
+        addLabel("MODE  (max delay in ticks)", cx - 125.f, cy + 96.f, 0.33f, gray);
         const char* names[4] = {"OFF", "LOW", "MED", "HIGH"};
         int ticks[4] = {
             0,
@@ -277,57 +359,99 @@ protected:
             static_cast<int>(mod->getSettingValue<int64_t>("med-ticks")),
             static_cast<int>(mod->getSettingValue<int64_t>("high-ticks"))
         };
-
         for (int i = 0; i < 4; i++) {
-            float y = cy + 45.f - i * 32.f;
-            std::string text = i == 0 ? std::string("OFF")
-                                      : fmt::format("{}  ({} ticks)", names[i], ticks[i]);
-            auto lbl = CCLabelBMFont::create(text.c_str(), "bigFont.fnt");
-            lbl->setScale(0.5f);
-            lbl->setAnchorPoint({0.f, 0.5f});
-            lbl->setPosition({cx - 85.f, y});
-            this->addChild(lbl);
-
-            auto check = CCSprite::createWithSpriteFrameName("GJ_checkOff_001.png");
-            m_checks[i] = check;
+            float x = cx - 108.f + (i % 2) * 125.f;
+            float y = cy + 72.f - (i / 2) * 28.f;
+            auto check = makeCheck(m_modeOn[i]);
             auto btn = CCMenuItemSpriteExtra::create(
                 check, this, menu_selector(ModesMenu::onPick)
             );
             btn->setTag(i);
-            btn->setPosition({cx + 85.f, y});
+            btn->setPosition({x, y});
             menu->addChild(btn);
+            std::string text = i == 0 ? std::string("OFF")
+                                      : fmt::format("{}  {}", names[i], ticks[i]);
+            addLabel(text.c_str(), x + 18.f, y, 0.45f, white);
         }
 
+        // --- ACTIVE IN
+        addLabel("ACTIVE IN", cx - 125.f, cy + 20.f, 0.33f, gray);
+        const char* rows[3] = {
+            "Cube / Ball / Robot / Spider",
+            "Ship / UFO / Swing  (min tap)",
+            "Wave  (min tap)"
+        };
+        for (int j = 0; j < 3; j++) {
+            float y = cy - 2.f - j * 26.f;
+            auto check = makeCheck(m_enOn[j]);
+            auto btn = CCMenuItemSpriteExtra::create(
+                check, this, menu_selector(ModesMenu::onEnable)
+            );
+            btn->setTag(j);
+            btn->setPosition({cx - 108.f, y});
+            menu->addChild(btn);
+            addLabel(rows[j], cx - 90.f, y, 0.38f, white);
+        }
+
+        // --- STATS
+        addLabel("STATS", cx - 125.f, cy - 76.f, 0.33f, gray);
+        m_stat1 = addLabel("", cx - 125.f, cy - 91.f, 0.3f, white);
+        m_stat2 = addLabel("", cx - 125.f, cy - 103.f, 0.3f, white);
+
+        // --- buttons
         auto setSpr = ButtonSprite::create("Settings");
-        setSpr->setScale(0.8f);
+        setSpr->setScale(0.6f);
         auto setBtn = CCMenuItemSpriteExtra::create(
             setSpr, this, menu_selector(ModesMenu::onSettings)
         );
-        setBtn->setPosition({cx, cy - 82.f});
+        setBtn->setPosition({cx - 60.f, cy - 121.f});
         menu->addChild(setBtn);
+
+        auto resetSpr = ButtonSprite::create("Reset stats");
+        resetSpr->setScale(0.6f);
+        auto resetBtn = CCMenuItemSpriteExtra::create(
+            resetSpr, this, menu_selector(ModesMenu::onResetStats)
+        );
+        resetBtn->setPosition({cx + 60.f, cy - 121.f});
+        menu->addChild(resetBtn);
 
         auto closeSpr = CCSprite::createWithSpriteFrameName("GJ_closeBtn_001.png");
         auto closeBtn = CCMenuItemSpriteExtra::create(
             closeSpr, this, menu_selector(ModesMenu::onClose)
         );
-        closeBtn->setPosition({cx - 115.f, cy + 105.f});
+        closeBtn->setPosition({cx - 146.f, cy + 131.f});
         menu->addChild(closeBtn);
 
         this->refresh();
         this->setTouchEnabled(true);
         this->setKeypadEnabled(true);
+        this->scheduleUpdate();
         this->setID("buffer-modes"_spr);
         return true;
     }
 
     void refresh() {
-        int mode = Mod::get()->getSavedValue<int>("mode", 2);
-        auto cache = CCSpriteFrameCache::sharedSpriteFrameCache();
+        auto mod = Mod::get();
+        int mode = mod->getSavedValue<int>("mode", 2);
         for (int i = 0; i < 4; i++) {
-            m_checks[i]->setDisplayFrame(cache->spriteFrameByName(
-                i == mode ? "GJ_checkOn_001.png" : "GJ_checkOff_001.png"
-            ));
+            m_modeOn[i]->setVisible(i == mode);
         }
+        const char* keys[3] = {"en-cube", "en-fly", "en-wave"};
+        for (int j = 0; j < 3; j++) {
+            m_enOn[j]->setVisible(mod->getSavedValue<bool>(keys[j], true));
+        }
+    }
+
+    void update(float dt) override {
+        m_timer += dt;
+        if (m_timer < 0.2f) return;
+        m_timer = 0.f;
+        m_stat1->setString(fmt::format(
+            "clicks {}  air {}  safe {}  would-die {}",
+            g_st.clicks, g_st.air, g_st.safe, g_st.died).c_str());
+        m_stat2->setString(fmt::format(
+            "delayed {}  stretched {}  last {}t  dt {:.3f}",
+            g_st.delayed, g_st.stretched, g_st.lastDelay, g_dt).c_str());
     }
 
     void onPick(CCObject* sender) {
@@ -335,6 +459,20 @@ protected:
         Mod::get()->setSavedValue<int>("mode", i);
         clearPending();
         this->refresh();
+    }
+
+    void onEnable(CCObject* sender) {
+        const char* keys[3] = {"en-cube", "en-fly", "en-wave"};
+        int j = static_cast<CCNode*>(sender)->getTag();
+        auto mod = Mod::get();
+        bool cur = mod->getSavedValue<bool>(keys[j], true);
+        mod->setSavedValue<bool>(keys[j], !cur);
+        clearPending();
+        this->refresh();
+    }
+
+    void onResetStats(CCObject*) {
+        g_st = Stats();
     }
 
     void onSettings(CCObject*) {
@@ -376,23 +514,43 @@ void openModesMenu() {
     handleTouchPriority(layer);
 }
 
+namespace {
+    VButton* g_v = nullptr;
+}
+
 // ---------------------------------------------------------------- hooks
+
+// Create the V button once; it then follows you to every screen.
+class $modify(BufferMenu, MenuLayer) {
+    bool init() {
+        if (!MenuLayer::init()) return false;
+        if (!g_v) {
+            g_v = VButton::create();
+            if (g_v) {
+                g_v->restorePosition();
+                SceneManager::get()->keepAcrossScenes(g_v);
+            }
+        }
+        return true;
+    }
+};
 
 class $modify(BufferGL, GJBaseGameLayer) {
     void handleButton(bool down, int button, bool isPlayer1) {
         auto pl = PlayLayer::get();
-        int maxDelay = currentMaxDelay();
-        if (g_injecting || g_simulating || !pl || button != 1 || maxDelay <= 0) {
+        if (g_injecting || g_simulating || !pl || button != 1 || currentMode() == 0) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
+        auto mod = Mod::get();
+        auto* p = isPlayer1 ? m_player1 : m_player2;
 
-        // remember how long you usually hold a click
+        // measure how long player 1 holds each click
+        int heldNow = -1;
         if (isPlayer1) {
             if (down) {
                 g_pressTick = g_tick;
             } else if (g_pressTick >= 0) {
-                int held = std::clamp(g_tick - g_pressTick, 1, 120);
-                g_hold = (g_hold * 3 + held) / 4;
+                heldNow = g_tick - g_pressTick;
                 g_pressTick = -1;
             }
         }
@@ -403,16 +561,50 @@ class $modify(BufferGL, GJBaseGameLayer) {
             return;
         }
 
-        auto* p = m_player1;
-        if (!down || !isPlayer1 || !p || m_gameState.m_isDualMode ||
-            flying(p) || canActNow(p)) {
+        if (!p || !isPlayer1 || m_gameState.m_isDualMode) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
 
-        auto mod = Mod::get();
+        // a stretched release is still waiting and you pressed again: apply it now
+        if (down && g_relWait > 0) {
+            g_relWait = 0;
+            g_injecting = true;
+            GJBaseGameLayer::handleButton(false, 1, true);
+            g_injecting = false;
+        }
+
+        bool wave = p->m_isDart;
+        bool fly = p->m_isShip || p->m_isBird || p->m_isSwing;
+
+        // ship / UFO / swing / wave: stretch very short taps to a minimum length
+        if (wave || fly) {
+            int minT = static_cast<int>(mod->getSettingValue<int64_t>(
+                wave ? "wave-min-ticks" : "fly-min-ticks"));
+            bool en = mod->getSavedValue<bool>(wave ? "en-wave" : "en-fly", true);
+            if (en && minT > 0 && !down && heldNow >= 0 && heldNow < minT) {
+                g_relWait = minT - heldNow;
+                ++g_st.stretched;
+                return;
+            }
+            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        }
+
+        // cube / ball / robot / spider: hold early clicks until they are safe
+        if (heldNow > 0) {
+            g_hold = (g_hold * 3 + std::clamp(heldNow, 1, 120)) / 4;
+        }
+        if (!down || !mod->getSavedValue<bool>("en-cube", true)) {
+            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        }
+        ++g_st.clicks;
+        if (canActNow(p)) {
+            return GJBaseGameLayer::handleButton(down, button, isPlayer1);
+        }
+        ++g_st.air;
+
         int horizon = static_cast<int>(mod->getSettingValue<int64_t>("horizon-ticks"));
         double budget = mod->getSettingValue<double>("sim-budget-ms");
-        int d = findDelay(pl, p, maxDelay, horizon, budget);
+        int d = findDelay(pl, p, currentMaxDelay(), horizon, budget);
         if (d <= 0) {
             return GJBaseGameLayer::handleButton(down, button, isPlayer1);
         }
@@ -422,7 +614,8 @@ class $modify(BufferGL, GJBaseGameLayer) {
 
     void processCommands(float dt, bool isHalfTick, bool isLastTick) {
         ++g_tick;
-        if (dt > 0.001f && dt < 2.0f) g_dt = dt;
+        float step = dt < 0.02f ? dt * 60.f : dt;
+        if (step > 0.05f && step < 0.6f) g_dt = step;
 
         for (auto it = g_queue.begin(); it != g_queue.end();) {
             if (it->wait <= 0) {
@@ -436,6 +629,12 @@ class $modify(BufferGL, GJBaseGameLayer) {
             }
         }
         if (g_queue.empty()) g_shift = 0;
+
+        if (g_relWait > 0 && --g_relWait == 0) {
+            g_injecting = true;
+            GJBaseGameLayer::handleButton(false, 1, true);
+            g_injecting = false;
+        }
 
         GJBaseGameLayer::processCommands(dt, isHalfTick, isLastTick);
     }
@@ -473,13 +672,6 @@ class $modify(BufferPL, PlayLayer) {
         PlayLayer::setupHasCompleted();
         clearPending();
         dropGhost();
-
-        if (Mod::get()->getSettingValue<bool>("show-v")) {
-            if (auto v = VButton::create()) {
-                v->restorePosition();
-                m_uiLayer->addChild(v, 100);
-            }
-        }
     }
 };
 
