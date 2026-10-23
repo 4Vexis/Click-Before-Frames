@@ -8,9 +8,9 @@
 	},
 	"id": "4vexis.click-before-frames",
 	"name": "Click Before Frames",
-	"version": "$MOD_VERSION",
-	"developer": "$MOD_DEVELOPER",
-	"description": "$MOD_DESCRIPTION",
+	"version": "v1.0.0",
+	"developer": "4Vexis",
+	"description": "Buffer clicks without consequences.",
 	"dependencies": {
 		"geode.node-ids": ">=v1.23.3"
 	}
