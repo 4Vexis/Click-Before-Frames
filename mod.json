@@ -8,57 +8,52 @@
     },
     "id": "4vexis.click-before-frames",
     "name": "Click Before Frames",
-    "version": "v1.1.0",
+    "version": "v1.3.0",
     "developer": "4Vexis",
-    "description": "Buffer early clicks so they register when you land or touch an orb. Includes an on-screen mode button.",
+    "description": "Predicts early clicks and holds them until they are safe. Includes a floating V menu.",
     "settings": {
-        "show-button": {
+        "show-v": {
             "type": "bool",
-            "name": "Show button",
+            "name": "Show V button",
             "default": true
-        },
-        "btn-x": {
-            "type": "float",
-            "name": "Button distance from right edge",
-            "default": 40,
-            "min": 0,
-            "max": 400
-        },
-        "btn-y": {
-            "type": "float",
-            "name": "Button distance from top edge",
-            "default": 30,
-            "min": 0,
-            "max": 300
-        },
-        "btn-scale": {
-            "type": "float",
-            "name": "Button size",
-            "default": 0.5,
-            "min": 0.2,
-            "max": 1.5
         },
         "low-ticks": {
             "type": "int",
-            "name": "LOW window (ticks)",
-            "description": "240 ticks = 1 second.",
+            "name": "LOW max delay (ticks)",
+            "description": "240 ticks = 1 second. 4 ticks = 1 frame at 60 FPS.",
             "default": 4,
             "min": 1,
             "max": 32
         },
         "med-ticks": {
             "type": "int",
-            "name": "MED window (ticks)",
+            "name": "MED max delay (ticks)",
             "default": 8,
             "min": 1,
             "max": 32
         },
         "high-ticks": {
             "type": "int",
-            "name": "HIGH window (ticks)",
+            "name": "HIGH max delay (ticks)",
             "default": 16,
             "min": 1,
             "max": 32
+        },
+        "horizon-ticks": {
+            "type": "int",
+            "name": "Prediction length (ticks)",
+            "description": "How far ahead the ghost looks. Higher is smarter but slower.",
+            "default": 60,
+            "min": 20,
+            "max": 200
+        },
+        "sim-budget-ms": {
+            "type": "float",
+            "name": "Max prediction time (ms)",
+            "description": "If the search takes longer, your click goes through normally.",
+            "default": 6,
+            "min": 1,
+            "max": 20
         }
     },
     "dependencies": {
