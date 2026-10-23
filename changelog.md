@@ -7,7 +7,6 @@
 - New: live Stats panel for finding problems.
 - Fixed the prediction time step and made it look further ahead, so early-click saves actually trigger.
 - New setting: Ghost counts as Player 1.
-- Creator name changed to vVexis.
 
 # v1.3.0
 - Added the floating V button and menu.
