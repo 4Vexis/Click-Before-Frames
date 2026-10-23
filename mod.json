@@ -8,14 +8,21 @@
     },
     "id": "4vexis.click-before-frames",
     "name": "Click Before Frames",
-    "version": "v1.3.0",
-    "developer": "4Vexis",
-    "description": "Predicts early clicks and holds them until they are safe. Includes a floating V menu.",
+    "version": "v1.4.0",
+    "developer": "vVexis",
+    "description": "Smart input assist: holds early clicks until they are safe. Floating V menu on every screen.",
     "settings": {
         "show-v": {
             "type": "bool",
             "name": "Show V button",
             "default": true
+        },
+        "v-size": {
+            "type": "float",
+            "name": "V button size",
+            "default": 1.0,
+            "min": 0.5,
+            "max": 2.0
         },
         "low-ticks": {
             "type": "int",
@@ -39,21 +46,43 @@
             "min": 1,
             "max": 32
         },
+        "fly-min-ticks": {
+            "type": "int",
+            "name": "Ship / UFO / Swing minimum tap (ticks)",
+            "description": "Taps shorter than this are stretched to this length. 0 = off.",
+            "default": 6,
+            "min": 0,
+            "max": 24
+        },
+        "wave-min-ticks": {
+            "type": "int",
+            "name": "Wave minimum tap (ticks)",
+            "description": "Taps shorter than this are stretched to this length. 0 = off.",
+            "default": 4,
+            "min": 0,
+            "max": 24
+        },
         "horizon-ticks": {
             "type": "int",
             "name": "Prediction length (ticks)",
             "description": "How far ahead the ghost looks. Higher is smarter but slower.",
-            "default": 60,
+            "default": 120,
             "min": 20,
-            "max": 200
+            "max": 300
         },
         "sim-budget-ms": {
             "type": "float",
             "name": "Max prediction time (ms)",
             "description": "If the search takes longer, your click goes through normally.",
-            "default": 6,
+            "default": 8,
             "min": 1,
             "max": 20
+        },
+        "ghost-as-p1": {
+            "type": "bool",
+            "name": "Ghost counts as Player 1",
+            "description": "Advanced. Turn on if would-die in the V menu Stats stays at 0 while you keep dying. Applies next level.",
+            "default": false
         }
     },
     "dependencies": {
