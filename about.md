@@ -1,3 +1,4 @@
-# Template Mod
+# CLICK BEFORE FRAMES
 
-Edit about.md to change this
+not the best, but functions atleast.
+Report any bugs on my channel Vvexis
