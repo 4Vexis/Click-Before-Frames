@@ -4,7 +4,7 @@
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/EffectGameObject.hpp>
-#include <Geode/ui/SceneManager.hpp>
+#include <Geode/modify/CCDirector.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -529,10 +529,21 @@ class $modify(BufferMenu, MenuLayer) {
             g_v = VButton::create();
             if (g_v) {
                 g_v->restorePosition();
-                SceneManager::get()->keepAcrossScenes(g_v);
+                g_v->retain();
             }
         }
         return true;
+    }
+};
+
+// Move the V button into every new scene so it shows everywhere.
+class $modify(BufferDirector, CCDirector) {
+    void willSwitchToScene(CCScene* newScene) {
+        CCDirector::willSwitchToScene(newScene);
+        if (g_v && newScene) {
+            if (g_v->getParent()) g_v->removeFromParentAndCleanup(false);
+            newScene->addChild(g_v, 99999);
+        }
     }
 };
 
