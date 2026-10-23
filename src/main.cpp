@@ -4,6 +4,7 @@
 #include <Geode/modify/PauseLayer.hpp>
 #include <Geode/modify/MenuLayer.hpp>
 #include <Geode/modify/EffectGameObject.hpp>
+#include <Geode/ui/SceneManager.hpp>
 #include <algorithm>
 #include <chrono>
 #include <cmath>
