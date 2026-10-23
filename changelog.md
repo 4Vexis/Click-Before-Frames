@@ -1,2 +1,5 @@
+# 1.1.0
+Full Rewriting of the mod.
+
 # 1.0.0
-- Edit this file to change your mod's changelog.
+- Release.
